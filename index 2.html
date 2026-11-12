@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Arquitectura agéntica para Clip</title>
+<style>
+:root{
+  --bg:#EDF1F6; --surface:#FFFFFF; --surface2:#F4F7FA; --ink:#0B1F3A; --muted:#566882; --line:#C8D2DF;
+  --sf:#0B6FD6; --sf-soft:#E3EFFC; --ag:#2D3440; --ag-soft:#ECEFF3;
+  --new:#0A8A66; --new-soft:#DAF3EA; --gone:#C23B3B; --gone-soft:#FBE5E5; --chg:#9A6410; --chg-soft:#FBEFD6;
+  --prop:#6B4FD8; --prop-soft:#ECE8FB; --flow:#F26B1D; --code:#0E2038; --code-ink:#DCE8F8;
+  --font:"Avenir Next","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#08121F; --surface:#0F1D31; --surface2:#142540; --ink:#E7EEF8; --muted:#97A8C0; --line:#263A55;
+    --sf:#58A9FF; --sf-soft:#102B4D; --ag:#A4AFBF; --ag-soft:#1B2A40;
+    --new:#35D3A2; --new-soft:#0F3A33; --gone:#FF8080; --gone-soft:#431E24; --chg:#F0B85A; --chg-soft:#3F3015;
+    --prop:#A99BFF; --prop-soft:#2A2250; --flow:#FF8A3D; --code:#050D18; --code-ink:#D5E3F6;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--flow);outline-offset:2px}
+.wrap{max-width:1360px;margin:0 auto;padding:0 20px}
+
+/* barra superior */
+.bar{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar .wrap{display:flex;align-items:center;gap:20px;height:52px;overflow-x:auto}
+.brand{font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.bar nav{display:flex;gap:4px}
+.bar a{color:var(--muted);text-decoration:none;padding:6px 10px;border-radius:6px;font-weight:600;font-size:14px;white-space:nowrap}
+.bar a:hover{background:var(--surface2);color:var(--ink)}
+
+/* hero */
+.hero{padding:30px 0 16px}
+.hero h1{font-size:clamp(28px,4vw,44px);line-height:1.08;letter-spacing:-.025em;margin:0 0 10px;max-width:22ch}
+.hero p{margin:0;max-width:72ch;color:var(--muted);font-size:16px}
+
+/* controles del mapa */
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px;margin:18px 0 12px}
+.seg{display:inline-flex;border:1.5px solid var(--ink);border-radius:8px;overflow:hidden}
+.seg button{background:var(--surface);border:0;padding:8px 16px;font-weight:600;border-right:1.5px solid var(--ink)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.count{color:var(--muted);font-size:14px}
+.opt{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted);cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-left:auto;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:16px;height:12px;border-radius:3px;border:2px solid}
+.sw.sf{border-color:var(--sf);background:var(--sf-soft)}.sw.ag{border-color:var(--ag);background:var(--ag-soft)}
+.sw.prop{border-color:var(--prop);background:var(--prop-soft);border-style:dashed}
+.sw.new{border-color:var(--new);background:var(--new-soft)}.sw.gone{border-color:var(--gone);background:var(--gone-soft);border-style:dashed}
+
+/* escenario */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:16px;align-items:start}
+.stage{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 14px 14px 28px}
+.map{display:grid;grid-template-columns:1fr 1.1fr 1.2fr 1.15fr;gap:16px}
+.zone{border:1.5px dashed var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:10px;align-self:start}
+.zt{font-size:13px;font-weight:700;color:var(--muted);margin:0 0 2px}
+.sub-zone{display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--line);padding-top:8px}
+.node{position:relative;display:block;width:100%;text-align:left;background:var(--surface);border:1.5px solid;border-radius:8px;padding:8px 10px;transition:opacity .2s,box-shadow .2s}
+.node.sf{border-color:var(--sf)}.node.ag{border-color:var(--ag)}
+.node:hover{background:var(--surface2)}
+.nt{display:block;font-weight:700;font-size:13.5px;line-height:1.25}
+.ns{display:block;font-size:12px;color:var(--muted);margin-top:1px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chip{font-size:11.5px;padding:1px 6px;border-radius:4px;background:var(--surface2);border:1px solid var(--line);color:var(--muted)}
+.box{border:1.5px solid var(--sf);border-radius:8px;padding:8px;background:var(--sf-soft);display:flex;flex-direction:column;gap:8px;position:relative}
+.box .hd{background:transparent;border:0;text-align:left;font-weight:700;font-size:13.5px;padding:2px 2px 0;border-radius:4px}
+.box .node{background:var(--surface)}
+.node.sel,.box.sel{outline:3px solid var(--flow);outline-offset:2px}
+.node.rel{box-shadow:0 0 0 3px color-mix(in srgb,var(--sf) 45%,transparent)}
+.node.on{box-shadow:0 0 0 3px color-mix(in srgb,var(--flow) 55%,transparent);border-color:var(--flow)}
+.node.dim,.box.dim{opacity:.38}
+.node.ghost{opacity:.4;border-style:dashed;pointer-events:none;filter:grayscale(1)}
+.node.ghost .ns::after{content:" (se incorpora en To-Be)"}
+.node.ghost.gone-ghost .ns::after{content:" (se retira en To-Be)"}
+.node.ghost.prop-ghost .ns::after{content:" (propuesta para To-Be)"}
+.node.propnode{border-style:dashed}
+.bd{position:absolute;top:-9px;right:8px;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;display:none;border:1px solid}
+.bd.new{display:block;background:var(--new-soft);color:var(--new);border-color:var(--new)}
+.bd.gone{display:block;background:var(--gone-soft);color:var(--gone);border-color:var(--gone)}
+.bd.prop{display:block;background:var(--prop-soft);color:var(--prop);border-color:var(--prop)}
+.bd.chg{display:block;background:var(--chg-soft);color:var(--chg);border-color:var(--chg)}
+.node.gone-node .nt{text-decoration:line-through;text-decoration-thickness:1.5px}
+svg.edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:5}
+.elab{font-size:11.5px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:var(--surface);stroke-width:5px;stroke-linejoin:round}
+.edge-flow{stroke-dasharray:7 6;animation:dash 1s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-26}}
+
+/* panel */
+.panel{position:sticky;top:64px;background:var(--surface);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;overflow:hidden}
+.ptabs{display:flex;border-bottom:1px solid var(--line)}
+.ptabs button{flex:1;background:transparent;border:0;padding:12px 8px;font-weight:700;color:var(--muted);border-bottom:3px solid transparent}
+.ptabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--flow)}
+#panel-body{padding:16px;overflow:auto}
+.panel h2{font-size:20px;letter-spacing:-.01em;margin:0 0 4px;line-height:1.2}
+.panel h3{font-size:13px;margin:16px 0 6px;color:var(--muted)}
+.panel p{margin:6px 0}
+.panel ul{margin:0;padding:0;list-style:none}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.pill{font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface2)}
+.pill.sf{color:var(--sf);border-color:var(--sf);background:var(--sf-soft)}
+.pill.new{color:var(--new);border-color:var(--new);background:var(--new-soft)}
+.pill.gone{color:var(--gone);border-color:var(--gone);background:var(--gone-soft)}
+.pill.prop{color:var(--prop);border-color:var(--prop);background:var(--prop-soft)}
+.pill.chg{color:var(--chg);border-color:var(--chg);background:var(--chg-soft)}
+.kv{display:grid;gap:8px}
+.kv li{border-left:3px solid var(--line);padding-left:10px}
+.kv b{display:block;font-size:13.5px}
+.kv span{font-size:13.5px;color:var(--muted)}
+.conn li{margin-bottom:8px}
+.link{background:transparent;border:0;padding:0;text-align:left;color:var(--sf);font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.conn span{display:block;font-size:13px;color:var(--muted)}
+.callout{border-radius:8px;padding:10px 12px;background:var(--new-soft);border:1px solid var(--new);font-size:14px}
+.callout b{color:var(--new)}
+.empty{color:var(--muted)}
+.btn{background:var(--surface);border:1.5px solid var(--ink);border-radius:8px;padding:7px 14px;font-weight:700}
+.btn:hover{background:var(--surface2)}
+.btn.primary{background:var(--ink);color:var(--bg)}
+.btn[disabled]{opacity:.4;cursor:default}
+.scs{display:grid;gap:8px;margin:10px 0}
+.sc{text-align:left;background:var(--surface2);border:1.5px solid var(--line);border-radius:8px;padding:9px 12px}
+.sc:hover{border-color:var(--ink)}
+.sc b{display:block}.sc span{font-size:13px;color:var(--muted)}
+.steps{counter-reset:s;display:grid;gap:4px;margin:10px 0}
+.steps button{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;background:transparent;border:1.5px solid transparent;border-radius:8px;padding:6px 8px;font-size:13.5px}
+.steps button::before{counter-increment:s;content:counter(s);flex:none;width:22px;height:22px;border-radius:50%;background:var(--surface2);border:1.5px solid var(--line);font-size:12px;font-weight:700;display:grid;place-items:center}
+.steps button[aria-current="step"]{border-color:var(--flow);background:color-mix(in srgb,var(--flow) 10%,transparent)}
+.steps button[aria-current="step"]::before{background:var(--flow);border-color:var(--flow);color:#fff}
+.steps button.done::before{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+pre.code{background:var(--code);color:var(--code-ink);border-radius:8px;padding:12px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow:auto;margin:8px 0;white-space:pre-wrap}
+pre.code mark{background:color-mix(in srgb,var(--flow) 40%,transparent);color:inherit;border-radius:3px;padding:0 2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* secciones */
+section.block{padding:44px 0 10px}
+section.block>.wrap>h2{font-size:clamp(24px,3vw,32px);letter-spacing:-.02em;margin:0 0 6px;line-height:1.15}
+section.block>.wrap>p.lead{margin:0 0 20px;color:var(--muted);max-width:75ch}
+.two{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.list{display:grid;gap:6px}
+.list button{text-align:left;background:var(--surface);border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;font-weight:700}
+.list button small{display:block;font-weight:400;color:var(--muted);font-size:13px}
+.list button[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.list button[aria-pressed="true"] small{color:color-mix(in srgb,var(--bg) 75%,var(--ink))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px}
+.card h3{margin:0 0 4px;font-size:22px;letter-spacing:-.01em}
+.card h4{margin:18px 0 6px;font-size:13px;color:var(--muted)}
+.card ul.bul{margin:6px 0;padding-left:18px}
+.card ul.bul li{margin:4px 0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:13px;color:var(--muted);background:var(--surface2)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:700}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.filters button{background:var(--surface);border:1.5px solid var(--line);border-radius:999px;padding:5px 14px;font-weight:600;font-size:14px}
+.filters button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.pipe{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.pipe button{background:var(--surface);border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-weight:700;font-size:13.5px}
+.pipe button[aria-current="step"]{background:var(--flow);color:#fff;border-color:var(--flow)}
+.pipe button.done{border-color:var(--ink)}
+.threats{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+footer{padding:40px 0 60px;color:var(--muted);font-size:13.5px}
+
+
+/* omnicanalidad y marcas en el mapa */
+.hero-wrap{padding:6px 0 0}
+.panel p.ba{border-left:4px solid var(--flow);background:color-mix(in srgb,var(--flow) 12%,transparent);padding:7px 10px;border-radius:0 8px 8px 0;font-size:13.5px;color:var(--ink)}
+.bd.team{display:block;background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.teams{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.teams span{font-size:12.5px;font-weight:700;padding:3px 12px;border-radius:999px;border:1.5px solid var(--line);color:var(--muted)}
+.teams span.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.box.on{border-color:var(--flow);box-shadow:0 0 0 3px color-mix(in srgb,var(--flow) 55%,transparent)}
+.box.rel{box-shadow:0 0 0 3px color-mix(in srgb,var(--sf) 45%,transparent)}
+.box.dim .node{opacity:1}
+
+@media (max-width:1100px){
+  .layout{grid-template-columns:1fr}
+  .panel{position:static;max-height:none}
+  .legend{margin-left:0}
+}
+@media (max-width:860px){
+  .map{grid-template-columns:1fr}
+  svg.edges{display:none}
+  .two,.cols{grid-template-columns:1fr}
+  .stage{padding:12px}
+}
+</style>
+</head>
+<body>
+
+<div class="bar"><div class="wrap">
+  <span class="brand">Clip y Agentforce</span>
+  <nav aria-label="Secciones">
+    <a href="#mapa">Mapa</a><a href="#referencia">Referencia</a><a href="#conectores">Conectores</a><a href="#trust">Trust Layer</a><a href="#supuestos">Supuestos</a>
+  </nav>
+</div></div>
+
+<main>
+<section class="hero-wrap"><div class="wrap"><div class="hero">
+  <h1>Del stack actual de Clip a una arquitectura agéntica</h1>
+  <p>Alterna entre el As-Is y el To-Be, haz clic en cualquier componente para ver sus conectores y protocolos, o recorre un caso de uso paso a paso sobre el mismo mapa.</p>
+</div></div></section>
+
+<section id="mapa">
+  <div class="wrap">
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Vista de la arquitectura">
+        <button data-mode="asis" aria-pressed="false">As-Is</button>
+        <button data-mode="tobe" aria-pressed="true">To-Be</button>
+        <button data-mode="delta" aria-pressed="false">Cambios</button>
+      </div>
+      <span class="count" id="count" aria-live="polite"></span>
+      <label class="opt"><input type="checkbox" id="showall"> Mostrar todas las conexiones</label>
+      <div class="legend">
+        <span><i class="sw sf"></i>Ecosistema Salesforce</span>
+        <span><i class="sw ag"></i>Agnóstico</span>
+        <span><i class="sw new"></i>Nuevo</span>
+        <span><i class="sw prop"></i>Propuesta (no implementada)</span>
+        <span><i class="sw gone"></i>Se retira o reemplaza</span>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="stage" id="stage">
+        <div class="map" id="map"></div>
+        <svg class="edges" id="edges" aria-hidden="true">
+          <defs>
+            <marker id="m-sf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--sf)"/></marker>
+            <marker id="m-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/></marker>
+            <marker id="m-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--flow)"/></marker>
+            <marker id="m-prop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--prop)"/></marker>
+            <marker id="m-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--new)"/></marker>
+            <marker id="m-gone" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:var(--gone)"/></marker>
+          </defs>
+        </svg>
+      </div>
+
+      <aside class="panel" aria-label="Detalle">
+        <div class="ptabs" role="tablist">
+          <button class="ptab" role="tab" data-tab="node" aria-selected="true">Componente</button>
+          <button class="ptab" role="tab" data-tab="flow" aria-selected="false">Caso de uso</button>
+        </div>
+        <div id="panel-body"></div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="referencia">
+  <div class="wrap">
+    <h2>Cómo se lee la arquitectura de referencia en Clip</h2>
+    <p class="lead">La referencia organiza la plataforma en capacidades de datos, un sistema de agencia (Agentforce) y un sistema de trabajo (CRM). Elige una capa para ver qué incluye y qué componentes de Clip la cubren.</p>
+    <div class="two">
+      <div class="list" id="ref-list"></div>
+      <div class="card" id="ref-card"></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="conectores">
+  <div class="wrap">
+    <h2>Inventario de conectores y patrones de integración</h2>
+    <p class="lead">Cada flecha de los diagramas, con el patrón técnico que la implementa. Filtra por tipo y salta al componente en el mapa.</p>
+    <div class="filters" id="filters"></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Conexión</th><th>Patrón o conector</th><th>Modo</th><th>Estado</th><th></th></tr></thead>
+      <tbody id="ctable"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="block" id="trust">
+  <div class="wrap">
+    <h2>Qué pasa con un dato sensible cuando el agente llama a un LLM</h2>
+    <p class="lead">Recorrido del Einstein Trust Layer sobre un caso de soporte. Todos los datos son ficticios. Avanza por las etapas y observa cómo cambia el contenido que sale hacia el modelo.</p>
+    <div class="card">
+      <div class="pipe" id="pipe"></div>
+      <div class="cols">
+        <div id="trust-text"></div>
+        <div><h4 style="margin-top:0">Contenido en esta etapa</h4><pre class="code" id="trust-code"></pre></div>
+      </div>
+      <h4>Vectores de amenaza que cubre la referencia</h4>
+      <div class="threats"><span class="chip">Prompt injection</span><span class="chip">Poisoning attacks</span><span class="chip">Evasion attacks</span><span class="chip">Model inversion attacks</span><span class="chip">Reverse engineering</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="supuestos">
+  <div class="wrap">
+    <h2>Supuestos a validar con Clip</h2>
+    <p class="lead">Lo que se interpretó a partir de los diagramas. Conviene confirmarlo antes de presentar.</p>
+    <div class="card"><ul class="bul" style="margin:0;padding-left:18px">
+      <li><b>Tuvis (Digital Engagement)</b> aparece en el As-Is y no en el To-Be. Se asume que sus funciones pasan a Marketing, los canales de Service y Agentforce.</li>
+            <li>Las flechas de Oracle ERP y Core Systems hacia Databricks se interpretan como ingesta al lago y se mantienen. MuleSoft se suma como capa de APIs, conectores, ingesta y calidad de datos hacia Informatica y Data 360, sin reemplazar a Databricks.</li>
+      <li>El As-Is no muestra una conexión gobernada entre Agentforce y los agentes de ElevenLabs ni el MCP Server. El To-Be la introduce con MuleSoft Agent Fabric y A2A.</li>
+      <li>Los casos de WhatsApp se tomaron de los documentos de UCP, con el nombre tal como aparece ahí. Customer Happiness y Merchant Growth son equipos de Clip.</li>
+      <li>Los casos de Slackbot para ventas de campo y servicio se basan en las pantallas del deck. Los de Merchant Growth, Liderazgo, Riesgo y PLD y Automatización se redactaron a partir de sus títulos y falta su detalle.</li>
+      <li>Los nombres de merchants, montos y datos de los ejemplos son ficticios.</li>
+      <li>Core Systems agrupa varios sistemas sin detallarlos. Los nombres de APIs y payloads de los casos de uso son ilustrativos.</li>
+      <li>Tableau se muestra como propuesta (no implementada) y no como parte del alcance actual. Los demás componentes nuevos se tratan como parte del To-Be.</li>
+      <li>Los componentes de Informatica, MuleSoft y Tableau se dibujan como ecosistema Salesforce, igual que en el diagrama To-Be.</li>
+    </ul></div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">Fuente: diagramas As-Is y To-Be de Clip y Agentic Enterprise Reference Architecture. Material técnico de trabajo.</div></footer>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+/* ---------- datos: componentes ---------- */
+const N={
+ oracle:{t:'Oracle ERP',eco:'ag',st:'both',sub:'Sistema de registro financiero',
+  blurb:'ERP corporativo con los datos financieros y administrativos de Clip.',
+  asis:'Alimenta el lago de datos en Databricks mediante ingesta.',
+  tobe:'Se expone con MuleSoft como System API. Agentforce, Flow y Data 360 consumen contratos de API reutilizables. La ingesta hacia Databricks no cambia.',
+  tech:['Patrón API-led: System API (acceso al ERP), Process API (lógica) y Experience API (consumo).','Las políticas, límites y trazas se aplican en un solo punto, en MuleSoft.'],
+  clip:'El agente puede verificar facturación, conciliación y estados de cuenta de un merchant dentro de la conversación.',ref:'Connect & Unify'},
+ core:{t:'Core Systems',eco:'ag',st:'both',sub:'Aplicaciones adicionales',
+  blurb:'Sistemas núcleo del negocio. El diagrama los agrupa como aplicaciones adicionales (transaccional y operación).',
+  asis:'Alimentan el lago de datos en Databricks mediante ingesta.',
+  tobe:'Se exponen con MuleSoft mediante APIs o eventos, y quedan disponibles como acciones para los agentes.',
+  tech:['Cada operación del agente se modela como una acción con contrato explícito (entrada, salida, errores).','Una API de consulta de solo lectura es el primer candidato: baja el riesgo y el agente ya entrega valor.'],
+  clip:'Fuente de transacciones, terminales y merchants. Falta definir qué sistemas concretos lo componen (ver Supuestos).',ref:'Connect & Unify'},
+ databricks:{t:'Databricks Data Lake',eco:'ag',st:'both',sub:'Mastering y warehouse',
+  blurb:'Lago de datos donde Clip centraliza datos analíticos.',
+  asis:'Se conecta a Data 360 con Zero Copy: Data 360 consulta las tablas del lago sin copiarlas.',
+  tobe:'Se mantiene sin cambios como lago de datos y warehouse. MuleSoft e Informatica se suman con APIs, conectores, ingesta y calidad de datos, sin reemplazarlo.',
+  tech:['Zero Copy Data Federation: el lago aparece en Data 360 como objetos externos (external DLOs), sin replicación.','En la referencia el flujo es bidireccional: Data Shares comparte datos de Data 360 hacia el lago, también sin copia.','Modelos entrenados en Databricks pueden entrar a Data 360 como inferencias (BYOM).'],
+  clip:'Los modelos y features de riesgo o comportamiento que ya viven aquí pueden usarse en segmentos e insights sin duplicar datos.',ref:'Connect & Unify, Analyze & Predict'},
+ knowledge:{t:'Enterprise Knowledge',eco:'ag',st:'tobe',sub:'Files y Google Drive',
+  blurb:'Documentos de políticas, procesos y guías operativas.',
+  tobe:'Se ingestan en Data 360 mediante Upload o Connector. Se fragmentan, se vectorizan y quedan disponibles para el agente como búsqueda híbrida.',
+  tech:['Pipeline no estructurado: Document AI, chunking, embeddings y Search Indexes (vector, keyword, híbrido).','El Retriever (RAG) del agente consulta ese índice; la respuesta puede citar el documento fuente.','Los permisos de acceso se respetan al recuperar (Secure Data Retrieval).'],
+  clip:'Políticas de contracargos, guías de soporte de terminales y manuales de venta dejan de ser PDFs sueltos y pasan a ser contexto del agente.',ref:'Process & Enrich'},
+ informatica:{t:'Informatica',eco:'sf',st:'tobe',sub:'Datos maestros, calidad y gobierno',
+  parts:[['MDM','Registro maestro (golden record) del merchant, contacto y terminal, con reglas de match y merge.'],['Data Quality','Perfilado, estandarización y validación de datos antes de que lleguen a Data 360 o al agente.'],['Data Governance','Políticas, glosario y responsables de datos.'],['Data Catalog','Inventario de activos de datos con linaje y metadatos.'],['Data Intelligence','Metadatos enriquecidos para gobierno y preparación de datos para IA.']],
+  blurb:'Capa de datos maestros y calidad que se incorpora en el To-Be.',
+  tobe:'Se integra por MuleSoft con los sistemas fuente y con Data 360, de modo que las identidades y los datos que llegan al agente ya están depurados.',
+  tech:['MDM y la resolución de identidad de Data 360 (Match + Reconcile) se complementan: uno mantiene el registro maestro corporativo y el otro unifica perfiles para activación y agentes.'],
+  clip:'Un solo registro del merchant, con calidad medible, antes de que cualquier agente actúe sobre él.',ref:'Connect & Unify, Govern & Secure'},
+ mulesoft:{t:'MuleSoft',eco:'sf',st:'tobe',sub:'APIs, conectores e ingesta',
+  blurb:'Capa de integración entre back office, Informatica y Data 360.',
+  tobe:'Se suma como capa de APIs, conectores e ingesta. Conecta Oracle ERP y Core Systems con Informatica y Data 360 y publica APIs reutilizables. Databricks mantiene su rol y su ingesta actual.',
+  tech:['Anypoint Platform: gestión de APIs, políticas de seguridad, límites de uso y observabilidad.','Los conectores y System APIs aíslan al agente de la complejidad de cada sistema.','Misma plataforma que sostiene Agent Fabric en el lado de agentes.'],
+  clip:'Un contrato de API por capacidad (consultar cobro, estado de terminal, saldo) que sirve a agentes, Flows y otras aplicaciones.',ref:'Connect & Unify'},
+ data360:{t:'Data 360',eco:'sf',st:'both',chg:true,sub:'Sistema de contexto',
+  parts:[['Connect any data','Conectores listos, streaming, batch, zero copy y datos no estructurados.'],['Harmonize & Unify','Modelo de datos (DMOs) e Identity Resolution con Match y Reconcile para generar registros unificados (individuos, cuentas, hogares).'],['Govern & Secure','Etiquetas, taxonomías, políticas de acceso y enmascaramiento, Data Spaces, consentimiento y llaves propias (BYOK).'],['Enrich & Segment','Calculated Insights, segmentos e inferencias de modelos propios (BYOM).'],['Activate Data Anywhere','Activaciones, Data Actions (webhooks y platform events) y Data Shares sin copia.'],['Semantic Layer','Modelos semánticos con métricas y dimensiones gobernadas que usan los agentes y Tableau.']],
+  blurb:'Plataforma de datos que da contexto en tiempo real a agentes, Marketing y analítica.',
+  asis:'Recibe datos de Databricks por Zero Copy. Es la única entrada de datos al ecosistema Salesforce.',
+  tobe:'Suma tres entradas: MuleSoft (APIs y eventos), Informatica (datos maestros) y Enterprise Knowledge (no estructurado). En la propuesta, sale hacia Tableau por batch o streaming.',
+  tech:['Los agentes obtienen grounding con Retrievers y Secure Data Retrieval sobre este modelo.','Segmentos y activaciones alimentan a Marketing sin copiar datos fuera.'],
+  clip:'Una vista unificada del merchant (transacciones, casos, terminales, interacciones) disponible en milisegundos para el agente.',ref:'Connect & Unify, Govern & Secure, Segment & Act'},
+ tableau:{t:'Tableau',eco:'sf',st:'tobe',prop:true,sub:'Propuesta: analítica y capa semántica',
+  blurb:'Componente propuesto para el To-Be. Clip quiere sumarlo, pero hoy no está implementado ni en funcionamiento.',
+  tobe:'Se propone como capa de analítica sobre el modelo semántico de Data 360 (batch o streaming) y como Analytics Agent que responda preguntas de negocio desde Slack.',
+  tech:['Las métricas se definirían una vez en la capa semántica; dashboards y agente usarían la misma definición.','El agente respetaría los permisos del usuario que pregunta.','Es opcional respecto al resto del To-Be: los agentes de Service y Sales no dependen de él.'],
+  clip:'Habilitaría preguntas como terminales inactivas por región o tasa de contracargos, sin pedir un reporte nuevo.',ref:'Explore & Optimize'},
+ marketing:{t:'Marketing',eco:'sf',st:'both',sub:'Journeys y engagement',
+  blurb:'Orquesta campañas y recorridos de cliente.',
+  asis:'Envía engagement a Web y Push, Email, WhatsApp y redes.',
+  tobe:'Igual, ahora alimentado con segmentos de Data 360 enriquecidos con datos maestros y de Databricks.',
+  tech:['Journey Builder transfiere la conversación a Omni-Channel cuando el merchant responde a una campaña.','Segmentos y Communication Capping de la referencia evitan saturar al merchant.','Los consentimientos de Data 360 gobiernan a quién se puede contactar.'],
+  clip:'Nurturing de leads y reactivación de merchants con terminal inactiva, sobre el mismo perfil que usa el agente.',ref:'Segment & Act'},
+ fsc:{t:'Core CRM',eco:'sf',st:'both',box:true,
+  blurb:'Núcleo CRM del Home Org. Agrupa Sales, Service, Field Service, Platform, Agentforce y Experience sobre un único modelo de datos, identidad y permisos.',
+  asis:'Es el punto de contacto con los canales (Cases, FAQ y Lead Management) y con Slack (Read/Write).',
+  tobe:'Mantiene esas conexiones y suma Field Service dentro del mismo Home Org.',
+  tech:['Un solo modelo de permisos aplica a humanos y agentes: el agente no ve más de lo permitido.'],
+  clip:'Un registro único de merchant, caso y oportunidad compartido por ventas, servicio y servicio en campo.',ref:'System of work'},
+ sales:{t:'Sales Cloud',eco:'sf',st:'both',blurb:'Leads, oportunidades y pronóstico de ventas.',
+  asis:'Base del Agentforce SDR.',tobe:'Igual. Las alertas llegan al ejecutivo por Slack con el resumen del agente.',
+  tech:['El SDR agent trabaja sobre Lead y Opportunity con acciones de Flow.'],clip:'Adquisición de merchants: del lead entrante hasta el alta.',ref:'System of work'},
+ service:{t:'Service Cloud',eco:'sf',st:'both',blurb:'Casos, Omni-Channel, mensajería y voz.',
+  asis:'Recibe conversaciones de Web, Email, Voice, WhatsApp y redes.',tobe:'Igual. Los casos que requieren visita pasan a Field Service sin salir del Home Org.',
+  tech:['Omni-Channel enruta con colas, flujos de reglas, presencia y cola de respaldo, y entrega al humano el resumen y las acciones que ya hizo el agente (HITL).','Sesiones de mensajería en la consola, ligadas al usuario de mensajería y su historial.','Agentforce Service Agent opera sobre sesiones de mensajería y casos.'],clip:'Soporte a merchants omnicanal con un solo historial por merchant.',ref:'System of work'},
+ fsl:{t:'Field Service',eco:'sf',st:'tobe',blurb:'Órdenes de trabajo, agenda y despacho de técnicos.',
+  tobe:'Reemplaza a Zendesk Field Service (implementación en curso) y comparte modelo de datos con Service Cloud (Case, Work Order, Asset).',
+  tech:['Elimina la integración entre sistema de casos y sistema de campo.','El agente puede proponer horarios y crear la orden como una acción.'],clip:'Instalación y reparación de terminales con trazabilidad desde el caso hasta la visita.',ref:'System of work'},
+ platform:{t:'Salesforce Platform',eco:'sf',st:'both',blurb:'Flow, Apex, APIs, eventos, identidad y permisos.',
+  asis:'Hospeda las acciones del agente y la lógica de negocio.',tobe:'Igual. Las acciones llaman a las APIs de MuleSoft.',
+  tech:['Acciones del agente: Flow, Apex invocable, Prompt Templates y llamadas a APIs externas.','Platform Events y Change Data Capture para reaccionar a cambios.'],clip:'Donde se implementan las reglas de negocio que el agente ejecuta de forma determinista.',ref:'System of work'},
+ agentforce:{t:'Agentforce (ASA, SDR)',eco:'sf',st:'both',chg:true,sub:'Sistema de agencia',
+  blurb:'Agentes de servicio (ASA) y de ventas (SDR) con razonamiento, memoria y acciones.',
+  asis:'Opera dentro del Home Org. No hay una conexión gobernada con los agentes de ElevenLabs ni con el MCP Server.',
+  tobe:'Se conecta a MuleSoft Agent Fabric por A2A, lo que permite colaborar con agentes y herramientas externas con gobierno central.',
+  tech:['Reasoning Engine: clasificador de intención, planificador ReAct, instrucciones de prompt y rutas deterministas (Agent Script).','Memoria y sesión: historial de turnos, posición en el flujo y estado.','Acciones: Flow, Apex, Prompt Templates, Retrievers (RAG) y herramientas por MCP.','Human in the loop, Testing Center y Agent Analytics para operar y medir.'],
+  clip:'Un agente que combina conversación flexible con pasos deterministas para validar montos y políticas.',ref:'System of agency'},
+ experience:{t:'Experience',eco:'sf',st:'both',blurb:'Portales y sitios de autoservicio.',
+  asis:'Experiencia web para clientes.',tobe:'Igual, con agentes embebidos.',tech:['Mismos agentes y mismos permisos que en los demás canales.'],clip:'Portal de merchants con asistente integrado.',ref:'System of work'},
+ zendesk:{t:'Zendesk Field Service',eco:'ag',st:'asis',gone:'Se reemplaza',sub:'Servicio en campo',
+  blurb:'Sistema externo de servicio en campo, fuera del Home Org. Ya está siendo reemplazado por Salesforce Field Service (implementación en curso).',
+  asis:'Obliga a sincronizar casos y visitas con un segundo modelo de datos.',tobe:'Lo reemplaza Salesforce Field Service dentro del Home Org. La implementación está en proceso.',
+  tech:[],clip:'Menos integraciones que mantener y un solo historial por terminal.',ref:'System of work'},
+ tobi:{t:'Tuvis',eco:'ag',st:'asis',gone:'Se retira',sub:'Digital Engagement',
+  blurb:'Plataforma externa de engagement digital.',
+  asis:'Vive fuera del Home Org.',tobe:'No aparece en el To-Be. Se asume que Marketing, Service y Agentforce cubren su función (a validar).',
+  tech:[],clip:'A validar con Clip qué funciones usan hoy.',ref:'Segment & Act'},
+ fabric:{t:'MuleSoft Agent Fabric',eco:'sf',st:'tobe',sub:'Fabric (MCP) y Governance',
+  blurb:'Capa de interoperabilidad y gobierno de agentes.',
+  tobe:'Conecta Agentforce con agentes externos por A2A y con servidores MCP. Centraliza registro, políticas y observabilidad.',
+  tech:['A2A: protocolo para que agentes de distintos proveedores colaboren.','MCP: acceso estándar a Skills, Tools y Resources.','Agent Registry y Observability: quién existe, qué puede hacer y qué hizo.'],
+  clip:'Los agentes de voz de ElevenLabs y las herramientas propias de Clip se vuelven parte de un mismo plano gobernado.',ref:'Interoperabilidad'},
+ channels:{t:'Canales',eco:'ag',st:'both',
+  parts:[['Web y Push','Mensajería web o in-app y notificaciones push.'],['Email','Correo entrante y saliente enlazado a casos y journeys.'],['Voice','Llamadas de voz.'],['WhatsApp','Un solo número y una cuenta de WhatsApp Business para Marketing y Servicio, con plantillas, sesiones de mensajería y carruseles.'],['Facebook e Instagram','Mensajería de redes sociales.']],
+  blurb:'Puntos de contacto con merchants y prospectos.',
+  asis:'Marketing envía engagement. Service y Sales reciben casos, FAQ y leads.',tobe:'Igual. Todos los canales los atiende el mismo agente con el mismo contexto.',
+  tech:['El canal cambia, el contexto y las reglas del agente no.'],clip:'Un merchant puede empezar por WhatsApp y terminar en voz sin repetir su problema.',ref:'Segment & Act'},
+ elevenlabs:{t:'Agents (ElevenLabs)',eco:'ag',st:'both',sub:'Agentes de voz',
+  blurb:'Agentes conversacionales de voz de un proveedor externo.',
+  asis:'Funcionan de forma independiente. El diagrama no muestra una conexión gobernada con Agentforce.',
+  tobe:'Se conectan a Agentforce por A2A mediante Agent Fabric. Pueden delegar consultas y acciones con trazabilidad.',
+  tech:['Delegar por A2A evita duplicar lógica de negocio: el agente de voz pide, Agentforce ejecuta.'],clip:'Voz natural en la llamada y lógica de negocio centralizada en un solo lugar.',ref:'Interoperabilidad'},
+ mcp:{t:'MCP Server',eco:'ag',st:'both',sub:'Herramientas por MCP',
+  blurb:'Servidor que expone herramientas y recursos con el estándar Model Context Protocol.',
+  asis:'Existe como componente de IA. El diagrama no lo conecta con Home Org.',tobe:'Agent Fabric lo expone a los agentes bajo políticas comunes.',
+  tech:['Expone Skills, Tools y Resources.','Agentforce puede consumir sus herramientas como acciones.'],clip:'Las capacidades propias de Clip se publican una vez y las usa cualquier agente autorizado.',ref:'Interoperabilidad'},
+ slack:{t:'Slack',eco:'sf',st:'both',chg:true,box:true,
+  blurb:'Superficie de trabajo del equipo interno, ahora con Slackbot como asistente sobre Salesforce.',
+  asis:'Lee y escribe registros del Home Org (Read/Write).',
+  tobe:'Mantiene Read/Write y suma casos de asistencia con Slackbot para ventas y servicio. Con Tableau (propuesta) sumaría un Analytics Agent.',
+  tech:['Alertas con contexto del agente, aprobaciones y acciones sobre registros sin salir de Slack.'],
+  clip:'El equipo de operaciones, ventas y servicio trabaja con Salesforce desde donde ya conversa.',ref:'System of work'},
+ slackbot:{t:'Slackbot',eco:'sf',st:'both',chg:true,sub:'Asistente de IA',
+  blurb:'Asistente de IA dentro de Slack. También se usa en la consola de servicio (Lightning) y en el celular.',
+  asis:'Presente en el As-Is como asistente conversacional de Slack.',
+  tobe:'Se refuerza como asistente de ventas (brief de visita, crear oportunidades) y como asesor del agente de Customer Happiness en el caso.',
+  tech:['Consulta Salesforce mediante el MCP de Salesforce, con los permisos de la persona que pregunta, y cita las fuentes que leyó.','Puede leer canales de Slack y conocimiento en Drive.','Las acciones de escritura, como crear una oportunidad o cerrar un caso, piden confirmación a la persona.','Se distingue de Agentforce: Slackbot asiste a una persona, mientras que Agentforce atiende al merchant o actúa de forma autónoma.'],
+  clip:'La ejecutiva de campo, el vendedor y el agente de servicio resuelven con una pregunta lo que antes pedía buscar en varios sistemas.',ref:'System of work'},
+ slackwf:{t:'Workflow',eco:'sf',st:'both',sub:'Automatizaciones',
+  blurb:'Workflow Builder: automatizaciones que se disparan desde mensajes y pueden invocar acciones.',
+  asis:'Presente en el As-Is junto a Slackbot.',tobe:'Igual. Se usa para tareas recurrentes, como el resumen semanal del pipeline.',
+  tech:['Puede invocar acciones sobre Salesforce y publicar resultados en canales.'],clip:'Tareas semanales y recordatorios sin construir una aplicación nueva.',ref:'System of work'}
+};
+const LAYOUT=[
+ {title:'Aplicaciones empresariales (back office)',items:['oracle','core','databricks','knowledge']},
+ {title:'Integración y datos',items:['informatica','mulesoft','data360','tableau']},
+ {title:'Home Org',items:['marketing',{box:'fsc',items:['sales','service','fsl','platform','agentforce','experience']},{label:'Fuera del Home Org',items:['zendesk','tobi']}]},
+ {title:'Canales, IA y colaboración',items:['channels','fabric',{label:'IA',items:['elevenlabs','mcp']},{box:'slack',items:['slackbot','slackwf']}]}
+];
+const E=[
+ {id:'e1',a:'oracle',b:'databricks',k:'both',label:'Ingesta',proto:'Ingesta al lago de datos. Se mantiene; Databricks conserva su rol.',dir:'fwd',loop:true},
+ {id:'e2',a:'core',b:'databricks',k:'both',label:'Ingesta',proto:'Ingesta al lago de datos. Se mantiene; Databricks conserva su rol.',dir:'fwd'},
+ {id:'e3',a:'databricks',b:'data360',k:'both',label:'Zero Copy',proto:'Zero Copy Data Federation: consulta in situ, sin replicar datos.',dir:'fwd'},
+ {id:'e4',a:'marketing',b:'channels',k:'both',label:'Engagement',proto:'Journeys y envíos por Web y Push, Email y mensajería.',dir:'fwd'},
+ {id:'e5',a:'fsc',b:'channels',k:'both',label:'Cases / FAQ / Lead Mgmt',proto:'Conversaciones entrantes enrutadas a Service y Sales. La respuesta sale por el mismo canal.',dir:'both'},
+ {id:'e6',a:'fsc',b:'slack',k:'both',label:'Read / Write',proto:'Lectura y escritura de registros desde Slack, alertas y acciones.',dir:'both'},
+ {id:'e7',a:'oracle',b:'mulesoft',k:'tobe',label:'API',proto:'System API sobre Oracle ERP.',dir:'both'},
+ {id:'e8',a:'core',b:'mulesoft',k:'tobe',label:'API',proto:'System API o eventos sobre los sistemas core.',dir:'both'},
+ {id:'e9',a:'mulesoft',b:'informatica',k:'tobe',label:'API',proto:'Datos hacia MDM y calidad, y registros maestros de vuelta.',dir:'both'},
+ {id:'e10',a:'mulesoft',b:'data360',k:'tobe',label:'API',proto:'Ingesta por API o streaming, y consulta desde Data 360.',dir:'both'},
+ {id:'e11',a:'knowledge',b:'data360',k:'tobe',label:'Upload / Connector',proto:'Ingesta de archivos y contenido de Drive para indexación y RAG.',dir:'fwd'},
+ {id:'e12',a:'data360',b:'tableau',k:'tobe',label:'Batch / Streaming',proto:'Propuesta: datos y modelo semántico hacia analítica.',dir:'fwd',prop:true},
+ {id:'e13',a:'tableau',b:'slack',k:'tobe',label:'Analytics Agent',proto:'Propuesta: el Analytics Agent respondería preguntas de negocio dentro de Slack.',dir:'fwd',prop:true},
+ {id:'e14',a:'agentforce',b:'fabric',k:'tobe',label:'A2A',proto:'Agent2Agent entre Agentforce y agentes externos, con gobierno central.',dir:'both'},
+ {id:'e15',a:'fabric',b:'elevenlabs',k:'tobe',label:'A2A',proto:'Agent2Agent con los agentes de voz de ElevenLabs.',dir:'both'},
+ {id:'e16',a:'fabric',b:'mcp',k:'tobe',label:'MCP',proto:'Acceso a Skills, Tools y Resources por Model Context Protocol.',dir:'both'},
+ {id:'e17',a:'slackbot',b:'sales',k:'tobe',label:'MCP de Salesforce',proto:'Slackbot consulta y actualiza Sales Cloud (cuentas, oportunidades, actividades) con los permisos de la persona.',dir:'both'},
+ {id:'e18',a:'slackbot',b:'service',k:'tobe',label:'Asesor del caso',proto:'Slackbot lee el caso en la consola de servicio y propone resumen, política aplicable y borrador de respuesta.',dir:'both'}
+];
+const CATS=['Omnicanalidad','Ventas','Servicio','Liderazgo y operación','Datos y analítica'];
+const SC=[
+ {id:'omni',t:'Omnicanalidad: Marketing, Ventas y Servicio en un solo canal',cat:'Omnicanalidad',teams:true,d:'Lo que Clip pidió para WhatsApp y cómo se cubre: un solo número, un solo historial y el equipo correcto en cada momento. Al final están los casos de WhatsApp (UCP) que lo aplican.',cases:['xsell','wa-unico','wa-agente','autoservicio','churn','medios'],steps:[
+  {t:'Un solo número de WhatsApp',nodes:['channels','marketing','service'],edges:['e4','e5'],body:'Un canal con un número y una cuenta de WhatsApp Business para Marketing y Servicio. Las campañas salen y las conversaciones de soporte entran por el mismo número, así que el merchant ve a Clip como una sola voz.'},
+  {t:'Atender dentro de Salesforce con historial',nodes:['channels','service','fsc'],edges:['e5'],body:'Sesiones de mensajería en la consola, ligadas al usuario de mensajería y su historial. Quien atiende ve la campaña, los casos anteriores y la conversación completa.'},
+  {t:'Enrutar al equipo correcto',nodes:['service','sales','fsc'],edges:[],body:'Omni-Channel: colas, flujos de reglas, presencia y cola de respaldo. La conversación llega a Ventas o a Customer Happiness según el motivo y la disponibilidad.'},
+  {t:'Journeys con traspaso a Customer Happiness',nodes:['marketing','channels','service'],edges:['e4','e5'],body:'Journey Builder transfiere la conversación y Omni-Channel la entrega al equipo. El merchant que responde a una campaña no cambia de número ni repite su contexto.'},
+  {t:'Medir y reportar',nodes:['marketing','data360','service'],edges:[],body:'Eventos de respuesta, KPIs de sesión y analítica de WhatsApp. Marketing, Ventas y Servicio miden sobre los mismos datos.'},
+  {t:'Identidad del merchant',nodes:['data360','marketing','sales','service'],edges:[],body:'Data 360: reglas de coincidencia para un perfil unificado. Los tres equipos consultan el mismo perfil del merchant antes de cada interacción.'}
+ ]},
+  {id:'slackbot-campo',t:'Ejecutiva de campo: brief de visita y oportunidad',cat:'Ventas',slackbot:true,d:'Antes de entrar con el merchant, la ejecutiva le pide a Slackbot el contexto y deja la oportunidad creada.',antes:'llamar a la oficina.',ahora:'un mensaje o un dictado.',steps:[
+  {t:'Pide el brief desde el celular',nodes:['slackbot','slack'],edges:[],body:'La ejecutiva escribe o dicta en Slack móvil. Slackbot recibe la solicitud con la identidad y los permisos de ella.',code:'Ejecutiva: Prepárame la visita a Abarrotes Demo, a las 11:00'},
+  {t:'Slackbot busca en Salesforce y en el canal de la cuenta',nodes:['slackbot','sales','service'],edges:['e17'],body:'Consulta cuenta, oportunidades y casos mediante el MCP de Salesforce, y lee el canal de Slack de la cuenta. Solo ve lo que la ejecutiva puede ver y cita las fuentes que usó.'},
+  {t:'Suma el perfil unificado del merchant',nodes:['data360','databricks'],edges:['e3'],body:'Data 360 aporta el perfil unificado: terminales activas, tendencia de ventas con tarjeta y señales de uso. Los datos de Databricks se consultan por Zero Copy, sin duplicarlos.'},
+  {t:'Sugiere la objeción probable y detecta una oportunidad',nodes:['slackbot','sales'],edges:['e17'],body:'El brief resume antigüedad, productos y casos recientes, anticipa la objeción de precio de un competidor y propone un argumento. Además detecta una posible segunda terminal.'},
+  {t:'Crea la oportunidad con confirmación',nodes:['slackbot','sales','platform'],edges:['e17'],body:'Slackbot pregunta si debe crear la oportunidad. Con la confirmación de la ejecutiva, escribe en Sales Cloud respetando sus permisos y las reglas de validación.',code:'{\n  "action": "create_opportunity",\n  "account": "Abarrotes Demo",\n  "product": "Terminal adicional",\n  "stage": "Prospecting",\n  "requires_confirmation": true\n}'},
+  {t:'Registra la visita al terminar',nodes:['slackbot','sales'],edges:['e17'],body:'Al salir, la ejecutiva dicta el resultado. Slackbot lo registra como actividad en Salesforce y actualiza la etapa si ella lo confirma.'}
+ ]},
+ {id:'slackbot-servicio',t:'Asesor del agente de Customer Happiness en el caso',cat:'Servicio',slackbot:true,d:'En la consola de servicio, Slackbot trabaja junto al caso: resumen, política aplicable y borrador de respuesta.',antes:'leer el historial y buscar la política.',ahora:'una pregunta junto al registro.',steps:[
+  {t:'El agente abre el caso con Slackbot al lado',nodes:['service','slackbot'],edges:['e18'],body:'En la consola de servicio, el panel de Slack con Slackbot queda junto al registro del caso. No cambia de herramienta ni copia datos.'},
+  {t:'Slackbot lee el caso y busca la política',nodes:['slackbot','service','knowledge','data360'],edges:['e18','e11'],body:'Lee los campos del caso y busca la política vigente en el conocimiento de Drive, indexado en Data 360. Muestra qué leyó, por ejemplo la versión de la política.'},
+  {t:'Entrega resumen y política aplicable',nodes:['slackbot','service'],edges:['e18'],body:'Resume el caso en pocas líneas y señala la política aplicable, por ejemplo el plazo de revisión y si corresponde notificar al merchant.'},
+  {t:'Redacta un borrador de respuesta',nodes:['slackbot','service'],edges:['e18'],body:'Propone un borrador para el merchant con el tono y la política correctos. La persona lo edita antes de enviarlo.',code:'Borrador de respuesta\nHola, su depósito de $8,420.00 MXN fue liberado tras una revisión preventiva de seguridad. Gracias por su paciencia.'},
+  {t:'La persona envía y cierra el caso',nodes:['service','platform'],edges:[],body:'Enviar y cerrar el caso es una acción de la persona. Slackbot asesora y prepara, pero no responde por su cuenta. Para atender directo al merchant se usa el Agentforce Service Agent.'}
+ ]},
+ {id:'merchant-growth',t:'Merchant Growth: canal de la cuenta',cat:'Ventas',slackbot:true,d:'El canal de Slack de la cuenta se vuelve el lugar donde el equipo consulta y actualiza Salesforce.',steps:[
+  {t:'El equipo conversa en el canal de la cuenta',nodes:['slack','slackbot'],edges:[],body:'El equipo de Merchant Growth coordina cada cuenta en su canal de Slack. Slackbot está disponible en ese mismo canal.'},
+  {t:'Slackbot trae el contexto de Salesforce',nodes:['slackbot','sales','data360'],edges:['e17'],body:'Ante una pregunta sobre la cuenta, Slackbot combina el canal con oportunidades, actividades y el perfil unificado de Data 360, y cita lo que leyó.'},
+  {t:'Actualiza registros desde el canal',nodes:['slackbot','sales'],edges:['e17'],body:'El equipo pide actualizar una oportunidad o registrar un acuerdo. Slackbot lo escribe en Sales Cloud con confirmación y deja constancia en el canal.'}
+ ]},
+ {id:'liderazgo',t:'Liderazgo: pipeline por plaza',cat:'Liderazgo y operación',slackbot:true,d:'Un líder pregunta por el pipeline de una plaza y recibe un resumen con riesgos y siguientes pasos.',steps:[
+  {t:'El líder pregunta por una plaza',nodes:['slackbot'],edges:[],body:'Pregunta de ejemplo: cómo va el pipeline de la plaza Norte este trimestre y qué oportunidades están en riesgo.'},
+  {t:'Slackbot consulta Sales Cloud',nodes:['slackbot','sales'],edges:['e17'],body:'Lee oportunidades por plaza, etapa y antigüedad, con los permisos del líder, y agrupa por riesgo.'},
+  {t:'Entrega un resumen con siguientes pasos',nodes:['slackbot','data360'],edges:[],body:'Responde con totales, oportunidades estancadas y señales del merchant desde Data 360, y propone a quién dar seguimiento.'}
+ ]},
+ {id:'riesgo',t:'Riesgo y PLD: investigación con fuentes',cat:'Liderazgo y operación',slackbot:true,d:'Un analista pide una investigación y recibe un informe con las fuentes citadas.',steps:[
+  {t:'El analista pide una investigación',nodes:['slackbot'],edges:[],body:'Solicita en Slack una investigación sobre un merchant o un patrón. Slackbot trabaja con investigación profunda y entrega un informe con fuentes.'},
+  {t:'Reúne datos y documentos internos',nodes:['slackbot','data360','knowledge'],edges:['e11'],body:'Combina el perfil unificado de Data 360 con políticas y documentos internos de Drive. Respeta las políticas de acceso y enmascaramiento de datos.'},
+  {t:'Entrega el informe con citas',nodes:['slackbot','slack'],edges:[],body:'El informe indica de dónde sale cada afirmación. La persona revisa y decide. Slackbot no toma decisiones de cumplimiento.'}
+ ]},
+ {id:'automatizacion',t:'Automatización: tarea semanal',cat:'Liderazgo y operación',slackbot:true,d:'Una tarea recurrente que Slackbot ejecuta cada semana y publica en el canal.',steps:[
+  {t:'Se programa la tarea',nodes:['slackbot','slackwf'],edges:[],body:'La persona le pide a Slackbot una tarea semanal, por ejemplo el resumen del pipeline de cada lunes. Se apoya en Workflow para la recurrencia.'},
+  {t:'Cada semana consulta Salesforce',nodes:['slackbot','sales'],edges:['e17'],body:'En cada ejecución, Slackbot lee los datos actualizados en Salesforce con los permisos de quien programó la tarea.'},
+  {t:'Publica el resultado en el canal',nodes:['slack','slackbot'],edges:[],body:'El resumen llega al canal acordado, con enlaces a los registros para profundizar.'}
+ ]},
+ {id:'soporte',t:'Agente de IA atiende primero en WhatsApp y escala',cat:'Servicio',ucp:'5',d:'Un merchant escribe por un cobro duplicado y una terminal que no enciende. El agente resuelve o escala a Customer Happiness.',steps:[
+  {t:'El merchant escribe por WhatsApp',nodes:['channels','service'],edges:['e5'],body:'Marketing y Servicio comparten un solo número y una cuenta de WhatsApp Business. El mensaje llega a Service Cloud como sesión de mensajería y se enruta directo al Agentforce Service Agent, que escala según las reglas de Omni-Channel.',code:'{\n  "channel": "WhatsApp",\n  "from": "+52 55 0000 0000",\n  "text": "Mi terminal no enciende y tengo un cobro duplicado"\n}'},
+  {t:'Se resuelve la identidad del merchant',nodes:['data360','informatica','mulesoft'],edges:['e9','e10'],body:'Data 360 aplica reglas de coincidencia (Match y Reconcile) sobre el teléfono y asocia el mensaje con el perfil unificado. Informatica aporta el registro maestro y Data Quality estandariza los datos. MuleSoft transporta ambos flujos.'},
+  {t:'El agente razona y elige el tema',nodes:['agentforce'],edges:[],body:'El Reasoning Engine clasifica la intención y selecciona los temas Cobros y Soporte de terminal. El planificador ejecuta su bucle ReAct y los pasos que exigen exactitud, como validar un monto, se fijan con Agent Script.'},
+  {t:'Verifica el cobro en los sistemas core',nodes:['agentforce','platform','mulesoft','core','oracle'],edges:['e7','e8'],body:'La acción del agente (Flow o Apex invocable) llama a una API de MuleSoft que consulta transacciones en Core Systems y conciliación en Oracle ERP. El agente no conoce credenciales ni endpoints, solo el contrato de la acción.',code:'POST /process-api/v1/charges/duplicates-check\n{\n  "merchantId": "{unified_merchant_id}",\n  "amount": 1250.00,\n  "currency": "MXN",\n  "window": "PT24H"\n}'},
+  {t:'Responde con la política vigente',nodes:['knowledge','data360','agentforce'],edges:['e11'],body:'La política de contracargos vive en Drive. Data 360 la indexa (fragmentos, vectores y búsqueda híbrida) y un Retriever la entrega como grounding. La respuesta puede citar el documento fuente.'},
+  {t:'El Trust Layer protege la llamada al modelo',nodes:['agentforce','data360'],edges:[],body:'Antes de llegar al LLM, la solicitud pasa por enmascaramiento de datos y por el LLM Gateway con retención cero. Al volver se revisa toxicidad, se desenmascara y se registra la auditoría. El recorrido completo está en la sección Trust Layer.'},
+  {t:'Si la terminal falla, se agenda un técnico',nodes:['service','fsl','platform'],edges:[],body:'El caso se convierte en una orden de trabajo de Field Service sobre el mismo modelo de datos (Case, Work Order, Asset). El agente propone horarios y el despacho asigna al técnico, sin integrar con un sistema externo.'},
+  {t:'Traspaso a Customer Happiness con contexto',nodes:['service','fsc','slackbot'],edges:['e6','e18'],body:'En casos sensibles aplica human in the loop: Omni-Channel entrega la sesión al equipo con un resumen y las acciones ya ejecutadas. En la consola, Slackbot asesora a la persona con la política y un borrador.'}
+ ]},
+ {id:'sdr',t:'Lead entrante a ventas (SDR)',cat:'Ventas',d:'Un merchant interesado llega por web y el agente lo califica.',steps:[
+  {t:'El lead llega por web o WhatsApp',nodes:['channels','sales'],edges:['e5'],body:'La conversación se enruta a Sales Cloud y se crea el lead. Agentforce SDR responde en el mismo canal.'},
+  {t:'Data 360 enriquece y segmenta',nodes:['data360','databricks'],edges:['e3'],body:'Enrich & Segment calcula insights (por ejemplo volumen estimado o giro) y asigna segmentos. Si el scoring vive en Databricks, se consulta por Zero Copy sin mover datos.'},
+  {t:'El SDR califica y propone siguiente paso',nodes:['agentforce','sales'],edges:[],body:'El agente hace preguntas de calificación, actualiza el lead y propone una reunión. Las reglas de elegibilidad se fijan como pasos deterministas.'},
+  {t:'Marketing continúa el seguimiento',nodes:['marketing','channels','data360'],edges:['e4'],body:'Si el lead no avanza, entra a un journey con segmentos de Data 360, consentimientos respetados y límite de frecuencia de contacto.'},
+  {t:'El ejecutivo recibe la alerta en Slack',nodes:['slackbot','sales','fsc'],edges:['e6','e17'],body:'Se crea la oportunidad en Sales Cloud y Slack recibe un resumen con la conversación. El ejecutivo puede pedirle a Slackbot que actualice la etapa.'}
+ ]},
+ {id:'wa-unico',t:'De la campaña a la conversación en el mismo hilo',cat:'WhatsApp y Marketing',ucp:'3 y 4',d:'Un merchant responde a una campaña y lo atiende la persona correcta, sin cambiar de número ni repetir su contexto.',parent:'omni',teams:true,habilita:'Evitar enviar una promoción a un merchant que tiene un problema sin resolver, y que quien responde a una campaña sea atendido por una persona sin cambiar de número ni repetir su contexto.',apoyo:'Las campañas se pausan según el estado del caso y se reanudan al cerrarse. En Unified WhatsApp también se puede evitar contenido promocional durante una sesión de soporte. Journey Builder transfiere la conversación y Omni-Channel la enruta a la cola o persona correcta.',steps:[
+  {t:'Marketing envía una campaña por WhatsApp',nodes:['marketing','channels','data360'],edges:['e4'],body:'Journey Builder envía la plantilla desde el único número de WhatsApp Business de Clip, a un segmento de Data 360 y con límite de frecuencia de contacto.'},
+  {t:'El merchant responde en el mismo hilo',nodes:['channels','fsc'],edges:['e5'],body:'La respuesta llega al mismo hilo. Journey Builder transfiere la conversación a una sesión de mensajería en el Core CRM.'},
+  {t:'Se evita contenido promocional si hay un caso abierto',nodes:['data360','service','marketing'],edges:[],body:'Las campañas se pausan según el estado del caso y se reanudan al cerrarse. En Unified WhatsApp también se puede evitar contenido promocional durante una sesión de soporte.'},
+  {t:'Omni-Channel lo entrega a la persona correcta',nodes:['service','sales','fsc'],edges:[],body:'Omni-Channel usa colas, flujos de reglas, presencia y cola de respaldo para llevar la conversación a Ventas o a Customer Happiness. La sesión queda ligada al usuario de mensajería y a su historial, y Data 360 asegura el perfil unificado del merchant.'},
+  {t:'Se mide la conversación',nodes:['marketing','data360'],edges:[],body:'Los eventos de respuesta, los KPIs de sesión y la analítica de WhatsApp alimentan el reporte de la campaña y del equipo.'}
+ ]},
+ {id:'xsell',t:'Cross-sell y upsell con la siguiente mejor oferta',cat:'Ventas',ucp:'1 y 2',d:'Marketing, Ventas y Customer Happiness ofrecen el producto correcto con el mismo perfil del merchant.',parent:'omni',teams:true,habilita:'Ofrecer al merchant el producto adecuado en el momento adecuado, con el contexto de lo que ya tiene y de cómo ha interactuado con Clip. Que Marketing, Ventas y Customer Happiness consulten el mismo perfil antes de cada interacción.',apoyo:'Data 360 unifica las señales del merchant. Los journeys conectados responden a señales de intención y las recomendaciones de siguiente mejor oferta se apoyan en Agentforce. El perfil unificado reúne datos de las aplicaciones de Salesforce y de fuentes externas.',steps:[
+  {t:'Data 360 unifica las señales del merchant',nodes:['data360','databricks','core'],edges:['e3'],body:'El perfil unificado reúne datos de las aplicaciones de Salesforce y de fuentes externas, como el uso que ya vive en Databricks. Marketing, Ventas y Customer Happiness consultan el mismo perfil.'},
+  {t:'Un journey responde a una señal de intención',nodes:['marketing','data360'],edges:[],body:'Los journeys conectados reaccionan a señales de intención del merchant, por ejemplo consultar un producto o llegar a un volumen de ventas.'},
+  {t:'Agentforce recomienda la siguiente mejor oferta',nodes:['agentforce','data360','sales'],edges:[],body:'La recomendación se apoya en Agentforce, con el contexto de lo que el merchant ya tiene y de cómo ha interactuado con Clip.'},
+  {t:'La oferta llega por el canal adecuado',nodes:['marketing','channels'],edges:['e4'],body:'La oferta sale por WhatsApp, correo o push, según el canal con mejor respuesta del merchant.'},
+  {t:'Ventas y Customer Happiness ven el mismo contexto',nodes:['sales','service','fsc'],edges:[],body:'Antes de cada interacción, ambos equipos ven la oferta, la respuesta y el historial en el mismo registro.'}
+ ]},
+ {id:'churn',t:'Prevención de churn y reactivación con datos propios',cat:'WhatsApp y Marketing',ucp:'9',d:'Detectar a tiempo a los merchants que bajan su uso y contactarlos con una acción dirigida.',parent:'omni',teams:true,habilita:'Detectar a tiempo a los merchants que bajan su uso y contactarlos con una acción dirigida.',apoyo:'Data 360 usa los datos de Databricks sin duplicarlos, y los journeys y agentes activan la comunicación.',steps:[
+  {t:'Databricks concentra los datos de uso',nodes:['databricks','core'],edges:[],body:'Los datos de uso y los modelos de Clip viven en Databricks, que mantiene su rol como lago de datos y warehouse.'},
+  {t:'Data 360 los usa sin duplicarlos',nodes:['databricks','data360'],edges:['e3'],body:'Zero Copy Data Federation expone las tablas del lago en Data 360 sin replicarlas.'},
+  {t:'Se arma el segmento de riesgo',nodes:['data360'],edges:[],body:'Calculated Insights detecta la caída de uso y Segments agrupa a los merchants en riesgo, con sus consentimientos.'},
+  {t:'El journey activa el contacto',nodes:['marketing','channels'],edges:['e4'],body:'Marketing envía una acción dirigida por WhatsApp desde el único número de Clip.'},
+  {t:'Si responde, retoma una persona o un agente',nodes:['agentforce','service','sales','fsc'],edges:['e5'],body:'La conversación pasa a Agentforce, a Ventas o a Customer Happiness según las reglas de Omni-Channel, con el contexto de la campaña.'}
+ ]},
+ {id:'wa-agente',t:'Agente de IA atiende primero en WhatsApp y escala',cat:'Servicio',ucp:'5',parent:'omni',teams:true,d:'El agente resuelve las consultas frecuentes y pasa a una persona cuando hace falta.',habilita:'Atender consultas frecuentes de forma inmediata y pasar a Customer Happiness cuando haga falta.',apoyo:'Los mensajes pueden enrutarse directamente a un agente de Agentforce Service, que escala según las reglas de Omni-Channel.',steps:[
+  {t:'El merchant escribe al número único',nodes:['channels','service'],edges:['e5'],body:'Marketing y Servicio comparten número. Si el merchant responde a una campaña o abre una consulta, el mensaje llega a Service Cloud como sesión de mensajería.'},
+  {t:'Agentforce Service atiende primero',nodes:['agentforce','data360'],edges:[],body:'El agente responde las consultas frecuentes de inmediato, con el perfil unificado del merchant y el conocimiento indexado como contexto.'},
+  {t:'Escala según las reglas de Omni-Channel',nodes:['agentforce','service','sales','fsc'],edges:[],body:'Cuando hace falta, la sesión pasa a Customer Happiness con resumen y acciones ya hechas. Si detecta intención comercial, la lleva a Ventas.'},
+  {t:'La persona continúa en el mismo hilo',nodes:['service','slackbot'],edges:['e18'],body:'Quien atiende sigue en la misma conversación, con el historial completo. En la consola, Slackbot asesora con política y borrador de respuesta.'}
+ ]},
+ {id:'autoservicio',t:'Autoservicio, encuestas y contenido interactivo en WhatsApp',cat:'WhatsApp y Marketing',ucp:'6, 7 y 8',d:'El merchant agenda una visita, responde una encuesta o revisa un catálogo sin salir del chat.',parent:'omni',teams:true,habilita:'Que el merchant resuelva trámites sencillos en el chat, escuchar su satisfacción y motivos de no uso sin sacarlo de WhatsApp, y lanzar campañas con carruseles, catálogos y ofertas por tiempo limitado en temporadas como el Buen Fin.',apoyo:'Agentes conectados a los datos de Salesforce habilitan transacciones de autoservicio dentro de la conversación. WhatsApp Flows en plantillas y mensajes de sesión generan eventos que activan ramas de los journeys. Los carruseles, de hasta 10 tarjetas, requieren Unified Messaging.',steps:[
+  {t:'Campaña con contenido interactivo',nodes:['marketing','channels'],edges:['e4'],body:'Para fechas como el Buen Fin, la campaña usa carruseles de hasta 10 tarjetas, catálogos y ofertas por tiempo limitado. Los carruseles requieren Unified Messaging.'},
+  {t:'El merchant resuelve un trámite en el chat',nodes:['channels','agentforce','platform'],edges:['e5'],body:'Un agente conectado a los datos de Salesforce habilita transacciones de autoservicio dentro de la conversación, por ejemplo canjear una oferta.'},
+  {t:'Agenda una visita',nodes:['agentforce','fsl'],edges:[],body:'Si el trámite requiere una visita, el agente propone horarios y la agenda como acción sobre Salesforce, por ejemplo con Field Service.'},
+  {t:'Responde una encuesta dentro del chat',nodes:['channels','marketing','data360'],edges:['e4'],body:'Con WhatsApp Flows, las plantillas y los mensajes de sesión generan eventos que activan ramas de los journeys. Así se escucha satisfacción y motivos de no uso sin sacar al merchant de WhatsApp.'}
+ ]},
+ {id:'medios',t:'Audiencias unificadas para medios pagados',cat:'Datos y analítica',ucp:'10',d:'Usar los segmentos de merchants para optimizar la pauta de adquisición.',parent:'omni',teams:true,habilita:'Usar los segmentos de merchants para optimizar la pauta de adquisición.',apoyo:'Los segmentos de Data 360 se activan en plataformas de medios, con optimización de pauta y analítica unificada.',steps:[
+  {t:'Data 360 construye los segmentos',nodes:['data360','databricks'],edges:['e3'],body:'Los segmentos combinan datos de Salesforce y de Databricks, con consentimiento y políticas de uso de datos.'},
+  {t:'Se activan en plataformas de medios',nodes:['data360','marketing'],edges:[],body:'Activations envía los segmentos a plataformas de medios pagados, sin copiar los datos fuera de las reglas de gobierno.'},
+  {t:'Se optimiza la pauta con analítica unificada',nodes:['marketing','data360'],edges:[],body:'El rendimiento de las audiencias vuelve a Data 360 y permite optimizar la pauta de adquisición con una sola vista.'}
+ ]},
+ {id:'analitica',t:'Pregunta de analítica en Slack (propuesta)',cat:'Datos y analítica',prop:true,d:'Escenario con Tableau, que aún no está implementado. Operaciones consultaría métricas sin pedir un reporte.',steps:[
+  {t:'Alguien pregunta en Slack',nodes:['slackbot'],edges:[],body:'Pregunta de ejemplo: ¿cuántos merchants tienen terminal sin transaccionar en 30 días, por región?'},
+  {t:'Se activa el Analytics Agent',nodes:['slackbot','tableau'],edges:['e13'],body:'La solicitud llega al Analytics Agent de Tableau, que traduce la pregunta a una consulta sobre métricas gobernadas.'},
+  {t:'Consulta el modelo semántico',nodes:['tableau','data360'],edges:['e12'],body:'Las métricas y dimensiones están definidas en la capa semántica de Data 360. Dashboards y agente usan la misma definición, así que los números coinciden.'},
+  {t:'Los datos vienen del lago sin copia',nodes:['data360','databricks'],edges:['e3'],body:'Cuando la métrica depende de tablas del lago, Data 360 las consulta con Zero Copy y respeta los permisos de quien pregunta.'},
+  {t:'La respuesta vuelve a Slack',nodes:['tableau','slackbot'],edges:['e13'],body:'El agente responde en el hilo con el resultado y un enlace al dashboard para profundizar.'}
+ ]},
+ {id:'voz',t:'Agente de voz que delega por A2A',cat:'Servicio',d:'Un agente de ElevenLabs atiende una llamada y delega a Agentforce.',steps:[
+  {t:'Entra una llamada',nodes:['channels','elevenlabs'],edges:[],body:'El agente de voz de ElevenLabs maneja la conversación: reconocimiento de voz, turnos y síntesis.'},
+  {t:'Delega mediante Agent Fabric',nodes:['elevenlabs','fabric'],edges:['e15'],body:'Cuando necesita datos o acciones de negocio, envía una tarea por A2A. Agent Fabric la recibe y valida quién la pide y qué puede pedir.',code:'POST /a2a/tasks\n{\n  "from": "voice-agent-clip",\n  "skill": "consultar-estado-caso",\n  "input": { "phone": "+52 55 0000 0000" }\n}'},
+  {t:'El gobierno se aplica en un solo punto',nodes:['fabric'],edges:[],body:'El registro de agentes, las políticas de acceso y la observabilidad viven en la misma capa. Cada llamada queda trazada de extremo a extremo.'},
+  {t:'Agentforce resuelve con contexto',nodes:['fabric','agentforce','data360'],edges:['e14'],body:'Agentforce consulta el perfil unificado en Data 360, ejecuta la acción en CRM y devuelve el resultado. La lógica de negocio no se duplica en el agente de voz.'},
+  {t:'Herramientas externas por MCP',nodes:['fabric','mcp'],edges:['e16'],body:'Si la tarea necesita una capacidad propia de Clip, Agent Fabric la invoca en el MCP Server como herramienta y devuelve la respuesta al agente de voz.'}
+ ]}
+];
+const REF=[
+ {t:'Connect & Unify',s:'Ingesta, identidad y modelo de datos',cap:['Data Streams (batch, streaming, zero copy, no estructurado)','Capas Bronze y Silver (DLOs)','Data Transforms','Identity Resolution (Match, Reconcile)','Modelo de datos y Unified Records'],
+  clip:['Databricks entra por Zero Copy y se conserva como fuente analítica.','Oracle ERP y Core Systems llegan por MuleSoft, con APIs reutilizables.','Informatica MDM mantiene el registro maestro; Data 360 unifica el perfil para activación y agentes.'],nodes:['databricks','mulesoft','informatica','data360','oracle','core']},
+ {t:'Govern & Secure',s:'Políticas, consentimiento y confianza',cap:['Etiquetas, taxonomías y políticas de acceso y enmascaramiento','Data Purpose Policies y consentimiento','Cifrado con llaves propias (BYOK)','Einstein Trust Layer','Seguridad de endpoint, nube, aplicación y red'],
+  clip:['Informatica Governance y Catalog gobiernan los datos de origen.','Data 360 aplica políticas y consentimiento sobre el perfil unificado.','El Trust Layer protege cada llamada a un LLM; Agent Fabric gobierna a los agentes.'],nodes:['informatica','data360','agentforce','fabric']},
+ {t:'Process & Enrich',s:'Contenido no estructurado y contexto',cap:['Document AI','Intelligent Context','Knowledge Harmonization','Search Indexes (vector, keyword, híbrido)','Knowledge Graph'],
+  clip:['Los documentos de Drive y Files se transforman en un índice consultable por los agentes.','El agente responde con política vigente y puede citar la fuente.'],nodes:['knowledge','data360']},
+ {t:'Analyze & Predict',s:'Modelos e inferencias',cap:['Modelos generativos, predictivos, de clasificación y de recuperación','Traer modelos propios (BYOM: SageMaker, Vertex, Databricks)','Calculated Insights','Inferences'],
+  clip:['Los modelos que Clip ya entrena en Databricks pueden entrar como inferencias, por ejemplo riesgo o propensión.','Los insights se usan en segmentos y como contexto del agente.'],nodes:['databricks','data360']},
+ {t:'Segment & Act',s:'Segmentación y activación',cap:['Segmentos (anidados, waterfall)','Activaciones a múltiples destinos','Data Actions (webhooks y platform events)','Communication Capping','Data Shares (zero copy) y Clean Rooms'],
+  clip:['Marketing activa segmentos de Data 360 en Web y Push, Email, WhatsApp y redes.','Data Actions pueden disparar flujos en Salesforce Platform u otros sistemas.'],nodes:['marketing','channels','data360']},
+ {t:'Explore & Optimize',s:'Exploración y analítica',cap:['Query Editor, Data Explorer y Profile Explorer','Índices secundarios','Reports y Dashboards','Integración con otros sistemas de BI'],
+  clip:['Se propone Tableau (aún no implementado) para consumir la capa semántica de Data 360 y entregar un Analytics Agent en Slack.'],nodes:['tableau','data360','slack']},
+ {t:'System of agency',s:'Agentforce',cap:['Agentes autónomos y ambientales','Instrucciones, Topics y Actions','Agent Script y rutas deterministas','Reasoning Engine (intención, planificador ReAct)','Memoria y sesión','Human in the loop','Grid, Agent Analytics y Testing Center'],
+  clip:['ASA y SDR ya están en el As-Is.','En el To-Be ganan contexto unificado, conocimiento indexado y acciones sobre sistemas core vía MuleSoft.'],nodes:['agentforce','service','sales','fsl']},
+ {t:'System of work',s:'CRM y superficies de trabajo',cap:['Agentforce Apps (Sales, Service, Marketing, Commerce)','Flows, Apex, Prompt Templates y Retrievers','Identidad, permisos y seguridad','Slack, Teams y otras superficies de trabajo'],
+  clip:['Sales, Service y Marketing ya operan en el Home Org.','Field Service se suma para el ciclo completo de terminales.','Slack es la superficie para el equipo interno.'],nodes:['fsc','service','sales','fsl','platform','experience','slack','slackbot','marketing']},
+ {t:'Interoperabilidad',s:'A2A, MCP y Agent Fabric',cap:['Agent Fabric, Agent Registry y Observability','Protocolo A2A','MCP Servers (Skills, Tools, Resources)','LLM Gateway y modelos propios (BYOLLM)'],
+  clip:['Los agentes de voz de ElevenLabs delegan en Agentforce por A2A.','El MCP Server de Clip publica herramientas para cualquier agente autorizado.','Todo bajo un registro, políticas y observabilidad comunes.'],nodes:['fabric','elevenlabs','mcp','agentforce']}
+];
+const CT=[
+ {n:'Databricks a Data 360',p:'Zero Copy Data Federation',m:'Consulta in situ, sin copiar datos',s:'both',tag:'datos',node:'databricks'},
+ {n:'Oracle ERP y MuleSoft',p:'System API (API-led)',m:'Solicitud-respuesta y eventos',s:'tobe',tag:'datos',node:'oracle'},
+ {n:'Core Systems y MuleSoft',p:'System API sobre APIs o eventos del core',m:'Solicitud-respuesta y eventos',s:'tobe',tag:'datos',node:'core'},
+ {n:'MuleSoft e Informatica',p:'APIs hacia MDM y Data Quality',m:'Batch y casi tiempo real',s:'tobe',tag:'datos',node:'informatica'},
+ {n:'MuleSoft y Data 360',p:'APIs y conectores de ingesta',m:'Streaming o batch',s:'tobe',tag:'datos',node:'mulesoft'},
+ {n:'Drive y Files a Data 360',p:'Upload o Connector, datos no estructurados',m:'Sincronización con indexación vectorial',s:'tobe',tag:'datos',node:'knowledge'},
+ {n:'Data 360 a Tableau',p:'Batch o Streaming',m:'Según el modelo semántico',s:'prop',tag:'datos',node:'tableau'},
+ {n:'Tableau a Slack',p:'Analytics Agent',m:'Conversacional, bajo demanda',s:'prop',tag:'agentes',node:'tableau'},
+ {n:'Agentforce y Agent Fabric',p:'A2A',m:'Tareas entre agentes con políticas y trazas',s:'tobe',tag:'agentes',node:'agentforce'},
+ {n:'Agent Fabric y ElevenLabs',p:'A2A',m:'Delegación de tareas desde voz',s:'tobe',tag:'agentes',node:'elevenlabs'},
+ {n:'Agent Fabric y MCP Server',p:'MCP (Skills, Tools, Resources)',m:'Invocación de herramientas',s:'tobe',tag:'agentes',node:'mcp'},
+ {n:'Marketing a Canales',p:'Engagement (journeys)',m:'Batch y disparadores',s:'both',tag:'canales',node:'marketing'},
+ {n:'Home Org y Canales',p:'Cases, FAQ y Lead Management',m:'Tiempo real, conversacional',s:'both',tag:'canales',node:'channels'},
+ {n:'Home Org y Slack',p:'Read / Write',m:'Eventos, comandos y alertas',s:'both',tag:'canales',node:'slack'},
+ {n:'Slackbot y Salesforce',p:'MCP de Salesforce (consultas y acciones)',m:'Conversacional; escritura con confirmación',s:'tobe',tag:'agentes',node:'slackbot'},
+ {n:'Oracle ERP y Core a Databricks',p:'Ingesta al lago',m:'Se mantiene; Databricks conserva su rol',s:'both',tag:'datos',node:'databricks'}
+];
+const TR=[
+ {t:'Recuperación segura',d:'El agente solo recupera lo que el usuario que lo invoca puede ver. Se aplican permisos por objeto y por campo.',b:['Respeta sharing y field-level security','Secure Data Retrieval en la referencia'],c:'// Registros a los que el usuario tiene acceso\nCase       00001234 (cobro duplicado)\nAccount    Cafetería Demo S.A. de C.V.\nContact    Ana Pérez, ana.perez@example.com, +52 55 0000 0000\nTransaction  $1,250.00 MXN, tarjeta terminación 0000\nKnowledge  Política de contracargos (Drive, v3)'},
+ {t:'Grounding dinámico',d:'La plantilla de prompt se completa con datos reales del CRM, de Data 360 y del índice de conocimiento.',b:['Prompt Templates con campos combinados','Retrievers para el contenido no estructurado'],c:'Eres el agente de soporte de Clip. Responde en español, con claridad.\nMerchant: Cafetería Demo S.A. de C.V.\nContacto: Ana Pérez (ana.perez@example.com, +52 55 0000 0000)\nCaso: cobro duplicado de $1,250.00 MXN, tarjeta terminación 0000\nPolítica: los contracargos se revisan en 5 días hábiles.'},
+ {t:'Enmascaramiento',d:'Los datos personales se sustituyen por marcadores antes de salir hacia el modelo. El mapa de equivalencias queda dentro de Salesforce.',b:['Detección de datos sensibles configurable','Los marcadores preservan el sentido de la frase'],c:'Eres el agente de soporte de Clip. Responde en español, con claridad.\nMerchant: Cafetería Demo S.A. de C.V.\nContacto: <mark>{PERSON_1}</mark> (<mark>{EMAIL_1}</mark>, <mark>{PHONE_1}</mark>)\nCaso: cobro duplicado de $1,250.00 MXN, tarjeta <mark>{CARD_1}</mark>\nPolítica: los contracargos se revisan en 5 días hábiles.'},
+ {t:'LLM Gateway',d:'Una pasarela única enruta a un modelo alojado por Salesforce o a uno propio (BYOLLM), con retención cero en el proveedor.',b:['Modelos de Anthropic, OpenAI, Gemini y otros en la referencia','Política de retención cero'],c:'POST llm-gateway/generate\nmodel:      <mark>(elegido por política: alojado o BYOLLM)</mark>\nretention:  <mark>zero</mark>\nprompt:     (versión enmascarada del paso anterior)'},
+ {t:'Respuesta y toxicidad',d:'La respuesta se evalúa antes de mostrarse. Si supera el umbral configurado, se bloquea o se reintenta.',b:['Detección de toxicidad en la respuesta','Marcadores aún sin restaurar'],c:'Hola {PERSON_1}, revisamos el cobro de $1,250.00 MXN en la tarjeta {CARD_1}.\nSegún la política, el contracargo se revisa en 5 días hábiles.\n\n<mark>toxicity_score: 0.01</mark>   (umbral de bloqueo configurable)'},
+ {t:'Desenmascarado',d:'Los marcadores se reemplazan por los valores originales, ya dentro de Salesforce, y la respuesta llega al merchant.',b:['El proveedor del modelo nunca vio los valores reales'],c:'Hola <mark>Ana Pérez</mark>, revisamos el cobro de $1,250.00 MXN en la tarjeta <mark>terminación 0000</mark>.\nSegún la política, el contracargo se revisa en 5 días hábiles.'},
+ {t:'Auditoría y feedback',d:'Cada interacción deja un registro auditable y se captura la retroalimentación para mejorar al agente.',b:['Audit Trail y Feedback Framework','Datos disponibles para reportes y revisión de calidad'],c:'{\n  "request_id": "demo-0001",\n  "masked_entities": <mark>["PERSON","EMAIL","PHONE","CARD"]</mark>,\n  "model_route": "gateway-default",\n  "toxicity": 0.01,\n  "feedback": "pendiente"\n}'}
+];
+
+/* ---------- estado ---------- */
+const S={mode:'tobe',sel:null,showAll:false,tab:'node',sc:null,step:0,play:null,ref:0,trust:0,filter:'all'};
+const nodeActive=id=>S.mode==='delta'||(S.mode==='asis'?N[id].st!=='tobe':N[id].st!=='asis');
+const edgeActive=e=>S.mode==='delta'||(S.mode==='asis'?e.k!=='tobe':e.k!=='asis');
+const curStep=()=>S.sc?SC.find(x=>x.id===S.sc).steps[S.step]:null;
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+/* ---------- construcción del mapa ---------- */
+function nodeEl(id){
+  const n=N[id],b=document.createElement('button');
+  b.type='button';b.className='node '+n.eco;b.dataset.node=id;b.dataset.pick=id;
+  const chips=n.parts?`<span class="chips">${n.parts.map(p=>`<span class="chip">${p[0]}</span>`).join('')}</span>`:'';
+  b.innerHTML=`<span class="bd"></span><span class="nt">${n.t}</span>${n.sub?`<span class="ns">${n.sub}</span>`:''}${chips}`;
+  return b;
+}
+function build(){
+  const map=$('#map');
+  LAYOUT.forEach(z=>{
+    const zone=document.createElement('div');zone.className='zone';
+    zone.innerHTML=`<p class="zt">${z.title}</p>`;
+    const add=(items,host)=>items.forEach(it=>{
+      if(typeof it==='string'){host.appendChild(nodeEl(it));}
+      else if(it.box){
+        const n=N[it.box],bx=document.createElement('div');bx.className='box';bx.dataset.node=it.box;bx.dataset.children=it.items.join(',');
+        bx.innerHTML=`<span class="bd"></span><button type="button" class="hd" data-pick="${it.box}">${n.t}</button>`;
+        add(it.items,bx);host.appendChild(bx);
+      } else {
+        const sz=document.createElement('div');sz.className='sub-zone';
+        sz.innerHTML=`<p class="zt">${it.label}</p>`;add(it.items,sz);host.appendChild(sz);
+      }
+    });
+    add(z.items,zone);map.appendChild(zone);
+  });
+}
+
+/* ---------- refresco ---------- */
+let DRAW=[];
+const TEAM={marketing:'Marketing',sales:'Ventas',service:'Servicio'};
+function refresh(){
+  const step=curStep();
+  const curSc=S.sc?SC.find(x=>x.id===S.sc):null;
+  const stepSet=step?new Set(step.nodes):null;
+  const rel=new Set();
+  DRAW=[];
+  if(step){
+    E.filter(e=>step.edges.includes(e.id)).forEach(e=>DRAW.push({e,c:'flow'}));
+    if(S.showAll)E.filter(e=>edgeActive(e)&&!step.edges.includes(e.id)).forEach(e=>DRAW.push({e,c:'faint'}));
+  } else {
+    E.filter(edgeActive).forEach(e=>{
+      const hi=S.sel&&(e.a===S.sel||e.b===S.sel);
+      if(hi){rel.add(e.a);rel.add(e.b);DRAW.push({e,c:'hi'});}
+      else if(S.showAll)DRAW.push({e,c:'faint'});
+    });
+  }
+  $$('[data-node]').forEach(el=>{
+    const id=el.dataset.node,n=N[id],act=nodeActive(id);
+    const isBox=el.classList.contains('box');
+    el.classList.toggle('ghost',!act);
+    el.classList.toggle('prop-ghost',!act&&!!n.prop);
+    el.classList.toggle('propnode',!!n.prop);
+    el.classList.toggle('gone-node',S.mode==='delta'&&n.st==='asis');
+    el.classList.toggle('gone-ghost',!act&&n.st==='asis');
+    el.classList.toggle('sel',S.sel===id&&!step);
+    const kids=isBox?(el.dataset.children||'').split(','):[];
+    el.classList.toggle('rel',rel.has(id)&&S.sel!==id);
+    el.classList.toggle('on',!!stepSet&&stepSet.has(id));
+    el.classList.toggle('dim',!!stepSet&&!stepSet.has(id)&&!kids.some(k=>stepSet.has(k)));
+    const bd=$('.bd',el);let txt='',cls='';
+    if(curSc&&curSc.teams&&TEAM[id]){txt=TEAM[id];cls='team';}
+    else if(n.prop&&S.mode!=='asis'){txt='Propuesta';cls='prop';}
+    else if(S.mode==='delta'){
+      if(n.st==='tobe'){txt='Nuevo';cls='new';}
+      else if(n.st==='asis'){txt=n.gone;cls='gone';}
+      else if(n.chg){txt='Evoluciona';cls='chg';}
+    }
+    bd.textContent=txt;bd.className='bd '+cls;
+  });
+  $$('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===S.mode));
+  const nn=Object.keys(N).filter(id=>!N[id].box&&nodeActive(id)).length,ne=E.filter(edgeActive).length;
+  $('#count').textContent=`${nn} componentes y ${ne} conexiones en esta vista`;
+  renderPanel();
+  requestAnimationFrame(drawEdges);
+}
+
+/* ---------- aristas ---------- */
+function drawEdges(){
+  const svg=$('#edges'),st=$('#stage').getBoundingClientRect();
+  const R=el=>{const r=el.getBoundingClientRect();return{l:r.left-st.left,r:r.right-st.left,t:r.top-st.top,b:r.bottom-st.top,cx:r.left-st.left+r.width/2,cy:r.top-st.top+r.height/2};};
+  let out='';
+  DRAW.forEach(({e,c})=>{
+    const A=$(`[data-node="${e.a}"]`),B=$(`[data-node="${e.b}"]`);
+    if(!A||!B||A.classList.contains('ghost')||B.classList.contains('ghost'))return;
+    const a=R(A),b=R(B);let d,mx,my;
+    if(e.loop){const x=Math.min(a.l,b.l)-20;d=`M${a.l} ${a.cy} C${x} ${a.cy} ${x} ${b.cy} ${b.l} ${b.cy}`;mx=.25*a.l+.75*x;my=(a.cy+b.cy)/2;}
+    else if(a.r<b.l-2||b.r<a.l-2){
+      const x1=a.r<b.l?a.r:a.l,x2=a.r<b.l?b.l:b.r,y1=a.cy,y2=b.cy,dx=(x2-x1)/2;
+      d=`M${x1} ${y1} C${x1+dx} ${y1} ${x2-dx} ${y2} ${x2} ${y2}`;mx=(x1+x2)/2;my=(y1+y2)/2;
+    } else {
+      const down=a.b<b.t,y1=down?a.b:a.t,y2=down?b.t:b.b,x1=a.cx,x2=b.cx,dy=(y2-y1)/2;
+      d=`M${x1} ${y1} C${x1} ${y1+dy} ${x2} ${y2-dy} ${x2} ${y2}`;mx=(x1+x2)/2;my=(y1+y2)/2;
+    }
+    let key='muted';
+    if(c==='flow')key='flow';
+    else if(e.prop)key='prop';
+    else if(S.mode==='delta')key=e.k==='tobe'?'new':e.k==='asis'?'gone':'muted';
+    else if(c==='hi')key='sf';
+    const w=c==='faint'?1.5:2.6,op=c==='faint'?.55:1;
+    const dash=(key==='gone'||key==='prop')?'stroke-dasharray="6 5"':'';
+    const ms=`marker-end="url(#m-${key})"`+(e.dir==='both'?` marker-start="url(#m-${key})"`:'');
+    out+=`<path class="${c==='flow'?'edge-flow':''}" d="${d}" fill="none" stroke-width="${w}" opacity="${op}" ${dash} ${ms} style="stroke:var(--${key})"/>`;
+    out+=`<text class="elab" x="${mx}" y="${my-5}" text-anchor="middle">${esc(e.label)}</text>`;
+  });
+  [...svg.children].forEach(ch=>{if(ch.tagName!=='defs')ch.remove();});
+  svg.insertAdjacentHTML('beforeend',out);
+}
+
+/* ---------- panel ---------- */
+function renderPanel(){
+  $$('.ptab').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===S.tab));
+  $('#panel-body').innerHTML=S.tab==='flow'?flowHTML():nodeHTML();
+}
+function nodeHTML(){
+  if(!S.sel){
+    let h=`<h2>Explora el mapa</h2><p class="empty">Haz clic en un componente para ver su rol, sus conexiones y cómo se ve en Clip.</p>`;
+    if(S.mode==='delta'){
+      const g=(f,t,c)=>{const ids=Object.keys(N).filter(f);return ids.length?`<h3>${t} (${ids.length})</h3><ul class="conn">${ids.map(id=>`<li><button class="link" data-pick="${id}">${N[id].t}</button></li>`).join('')}</ul>`:'';};
+      h+=g(i=>N[i].st==='tobe'&&!N[i].prop,'Nuevo en el To-Be')+g(i=>N[i].prop,'Propuesta, aún no implementada')+g(i=>N[i].st==='both'&&N[i].chg,'Evoluciona')+g(i=>N[i].st==='asis','Se retira o se reemplaza');
+    } else {
+      h+=`<h3>Pruébalo</h3><p>Pulsa <b>Cambios</b> para ver qué se agrega, qué evoluciona y qué se retira, o abre la pestaña <b>Caso de uso</b> para recorrer un flujo completo.</p>`;
+    }
+    return h;
+  }
+  const n=N[S.sel];
+  const stateTxt=n.prop?['prop','Propuesta para el To-Be']:n.st==='tobe'?['new','Nuevo en To-Be']:n.st==='asis'?['gone','Solo en As-Is']:n.chg?['chg','Evoluciona en To-Be']:['','En As-Is y To-Be'];
+  let h=`<h2>${n.t}</h2><div class="pills"><span class="pill ${n.eco==='sf'?'sf':''}">${n.eco==='sf'?'Ecosistema Salesforce':'Agnóstico'}</span><span class="pill ${stateTxt[0]}">${stateTxt[1]}</span></div><p>${n.blurb}</p>`;
+  const showAs=(S.mode!=='tobe')&&n.asis,showTo=(S.mode!=='asis')&&n.tobe;
+  if(showAs||showTo){
+    h+=`<h3>Rol en la arquitectura</h3><ul class="kv">`;
+    if(showAs)h+=`<li><b>En As-Is</b><span>${n.asis}</span></li>`;
+    if(showTo)h+=`<li><b>En To-Be</b><span>${n.tobe}</span></li>`;
+    h+='</ul>';
+  }
+  if(n.parts)h+=`<h3>Componentes</h3><ul class="kv">${n.parts.map(p=>`<li><b>${p[0]}</b><span>${p[1]}</span></li>`).join('')}</ul>`;
+  if(n.tech&&n.tech.length)h+=`<h3>Detalle técnico</h3><ul class="kv">${n.tech.map(t=>`<li><span>${t}</span></li>`).join('')}</ul>`;
+  const cons=E.filter(e=>edgeActive(e)&&(e.a===S.sel||e.b===S.sel));
+  if(cons.length){
+    h+=`<h3>Conexiones en esta vista</h3><ul class="conn">`+cons.map(e=>{
+      const o=e.a===S.sel?e.b:e.a,ar=e.dir==='both'?'↔':(e.a===S.sel?'→':'←');
+      return `<li><b>${esc(e.label)}</b> ${ar} <button class="link" data-pick="${o}">${N[o].t}</button><span>${e.proto}</span></li>`;
+    }).join('')+'</ul>';
+  } else if(!n.box){
+    h+=`<h3>Conexiones en esta vista</h3><p class="empty">No hay conexiones dibujadas para este componente en esta vista.</p>`;
+  }
+  h+=`<h3>En Clip</h3><div class="callout">${n.clip}</div>`;
+  h+=`<h3>Capa de la referencia</h3><p>${n.ref}</p>`;
+  return h;
+}
+function flowHTML(){
+  if(!S.sc){
+    return `<h2>Recorre un caso de uso</h2><p class="empty">Cada caso ilumina los componentes y las conexiones que participan en cada paso del mapa To-Be.</p>`+
+      CATS.map(c=>{const l=SC.filter(x=>x.cat===c&&!x.parent);return l.length?`<h3>${c}</h3><div class="scs">${l.map(x=>`<button class="sc" data-sc="${x.id}"><b>${x.t}</b><span>${x.d}</span></button>`).join('')}</div>`:'';}).join('');
+  }
+  const sc=SC.find(x=>x.id===S.sc),st=sc.steps[S.step],on=k=>st.nodes.includes(k)?'on':'';
+  return `${sc.parent?`<button class="link" data-sc="${sc.parent}">Volver a Omnicanalidad</button>`:''}
+  <div class="row" style="justify-content:space-between;flex-wrap:nowrap;${sc.parent?'margin-top:8px':''}"><h2 style="margin:0">${sc.t}</h2><button class="btn" data-exit>Salir</button></div>
+  <p class="empty">${sc.d}</p>
+  ${sc.antes?`<p class="ba"><b>Antes:</b> ${sc.antes} <b>Ahora:</b> ${sc.ahora}</p>`:''}
+  ${sc.teams?`<div class="teams" role="group" aria-label="Equipos que participan en este paso"><span class="${on('marketing')}">Marketing</span><span class="${on('sales')}">Ventas</span><span class="${on('service')}">Servicio</span></div>`:''}
+  <div class="steps">${sc.steps.map((s,i)=>`<button data-step="${i}" class="${i<S.step?'done':''}" ${i===S.step?'aria-current="step"':''}>${s.t}</button>`).join('')}</div>
+  <h3>Qué ocurre</h3><p>${st.body}</p>
+  ${st.code?`<h3>Ejemplo ilustrativo</h3><pre class="code">${esc(st.code)}</pre>`:''}
+  <h3>Componentes que participan</h3><div class="row">${st.nodes.map(i=>`<button class="link" data-pick="${i}">${N[i].t}</button>`).join('<span class="empty">,</span>')}</div>
+  <div class="row" style="margin-top:16px"><button class="btn" data-nav="-1" ${S.step===0?'disabled':''}>Anterior</button><button class="btn primary" data-nav="1" ${S.step===sc.steps.length-1?'disabled':''}>Siguiente</button><button class="btn" data-play>${S.play?'Pausar':'Reproducir'}</button></div>
+  ${sc.cases?`<h3>Casos de WhatsApp (UCP) dentro de Omnicanalidad</h3><div class="scs">${sc.cases.map(id=>{const c=SC.find(x=>x.id===id);return `<button class="sc" data-sc="${id}"><b>${c.t}</b><span>UCP ${c.ucp}. ${c.d}</span></button>`;}).join('')}</div>`:''}
+  ${sc.habilita?`<h3>Qué habilita para Clip</h3><p>${sc.habilita}</p><h3>Cómo se apoya en Salesforce y Data 360</h3><p>${sc.apoyo}</p>`:''}`;
+}
+
+/* ---------- acciones ---------- */
+function stopPlay(){if(S.play){clearInterval(S.play);S.play=null;}}
+function pick(id){stopPlay();S.sc=null;S.sel=(S.sel===id&&S.tab==='node')?null:id;S.tab='node';refresh();}
+function setMode(m){stopPlay();S.mode=m;S.sc=null;if(S.sel&&!nodeActive(S.sel))S.sel=null;refresh();}
+function startSc(id){stopPlay();S.mode='tobe';S.sc=id;S.step=0;S.sel=null;S.tab='flow';refresh();}
+function jump(id){stopPlay();S.mode=N[id].st==='asis'?'asis':'tobe';S.sc=null;S.sel=id;S.tab='node';refresh();$('#mapa').scrollIntoView({behavior:reduce?'auto':'smooth',block:'start'});}
+function go(i){const sc=SC.find(x=>x.id===S.sc);S.step=Math.max(0,Math.min(sc.steps.length-1,i));refresh();}
+
+document.addEventListener('click',ev=>{
+  const t=ev.target.closest('button,[data-pick]');if(!t)return;
+  const d=t.dataset;
+  if(d.pick){pick(d.pick);return;}
+  if(d.mode){setMode(d.mode);return;}
+  if(d.tab){stopPlay();S.tab=d.tab;if(d.tab==='node'&&S.sc){S.sc=null;refresh();}else renderPanel();return;}
+  if(d.sc){startSc(d.sc);return;}
+  if(d.step!==undefined){go(+d.step);return;}
+  if(d.nav){go(S.step+ +d.nav);return;}
+  if(d.exit!==undefined){stopPlay();S.sc=null;refresh();return;}
+  if(d.play!==undefined){
+    if(S.play){stopPlay();renderPanel();return;}
+    const sc=SC.find(x=>x.id===S.sc);
+    S.play=setInterval(()=>{if(S.step>=sc.steps.length-1){stopPlay();renderPanel();return;}go(S.step+1);},4500);renderPanel();return;
+  }
+  if(d.ref!==undefined){S.ref=+d.ref;renderRef();return;}
+  if(d.jump){jump(d.jump);return;}
+  if(d.filter){S.filter=d.filter;renderTable();return;}
+  if(d.trust!==undefined){S.trust=+d.trust;renderTrust();return;}
+});
+$('#showall').addEventListener('change',e=>{S.showAll=e.target.checked;refresh();});
+new ResizeObserver(()=>drawEdges()).observe($('#stage'));
+addEventListener('resize',drawEdges);
+
+/* ---------- referencia ---------- */
+function renderRef(){
+  $('#ref-list').innerHTML=REF.map((r,i)=>`<button data-ref="${i}" aria-pressed="${i===S.ref}">${r.t}<small>${r.s}</small></button>`).join('');
+  const r=REF[S.ref];
+  $('#ref-card').innerHTML=`<h3>${r.t}</h3><p style="margin:0;color:var(--muted)">${r.s}</p>
+  <div class="cols"><div><h4>Qué incluye la referencia</h4><ul class="bul">${r.cap.map(c=>`<li>${c}</li>`).join('')}</ul></div>
+  <div><h4>Cómo se ve en Clip</h4><ul class="bul">${r.clip.map(c=>`<li>${c}</li>`).join('')}</ul></div></div>
+  <h4>Ver en el mapa</h4><div class="row">${r.nodes.map(i=>`<button class="btn" data-jump="${i}">${N[i].t}</button>`).join('')}</div>`;
+}
+
+/* ---------- conectores ---------- */
+function renderTable(){
+  const F=[['all','Todas'],['both','Existen hoy'],['tobe','Nuevas'],['prop','Propuestas'],['datos','Datos'],['agentes','Agentes'],['canales','Canales y colaboración']];
+  $('#filters').innerHTML=F.map(f=>`<button data-filter="${f[0]}" aria-pressed="${S.filter===f[0]}">${f[1]}</button>`).join('');
+  const rows=CT.filter(r=>S.filter==='all'||r.s===S.filter||r.tag===S.filter);
+  const st={both:['','Existe hoy'],tobe:['new','Nuevo'],asis:['gone','Se sustituye'],prop:['prop','Propuesta']};
+  $('#ctable').innerHTML=rows.map(r=>`<tr><td>${r.n}</td><td>${r.p}</td><td>${r.m}</td><td><span class="pill ${st[r.s][0]}">${st[r.s][1]}</span></td><td><button class="link" data-jump="${r.node}">Ver en mapa</button></td></tr>`).join('');
+}
+
+/* ---------- trust layer ---------- */
+function renderTrust(){
+  $('#pipe').innerHTML=TR.map((s,i)=>`<button data-trust="${i}" class="${i<S.trust?'done':''}" ${i===S.trust?'aria-current="step"':''}>${i+1}. ${s.t}</button>`).join('');
+  const s=TR[S.trust];
+  $('#trust-text').innerHTML=`<h3>${s.t}</h3><p>${s.d}</p><ul class="bul">${s.b.map(b=>`<li>${b}</li>`).join('')}</ul>`;
+  const code=s.c.replace(/&/g,'&amp;').replace(/<(?!\/?mark>)/g,'&lt;').replace(/(?<!<\/?mark)>/g,'&gt;');
+  $('#trust-code').innerHTML=code;
+}
+
+/* ---------- inicio ---------- */
+build();renderRef();renderTable();renderTrust();refresh();
+</script>
+</body>
+</html>
